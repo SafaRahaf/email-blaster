@@ -28,8 +28,8 @@ const CustomTextStyle = TextStyle.extend({
     return {
       fontSize: {
         default: null,
-        parseHTML: element => element.style.fontSize,
-        renderHTML: attributes => {
+        parseHTML: (element) => element.style.fontSize,
+        renderHTML: (attributes) => {
           if (!attributes.fontSize) return {};
           return { style: `font-size: ${attributes.fontSize}` };
         },
@@ -38,28 +38,33 @@ const CustomTextStyle = TextStyle.extend({
   },
 });
 
-
-export function EmailBodyEditor({ value, onChange }: { value: string; onChange: (content: string) => void }) {
-const editor = useEditor({
-  extensions: [
-    StarterKit,
-    Underline,
-    Link.configure({ openOnClick: false }),
-    TextAlign.configure({
-      types: ["heading", "paragraph"],
-    }),
-    CustomTextStyle,
-    Color,
-    FontFamily.configure({
-      types: ["textStyle"],
-    }),
-  ],
-  content: value,
-  onUpdate: ({ editor }) => {
-    onChange(editor.getHTML());
-  },
-  immediatelyRender: false,
-});
+export function EmailBodyEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (content: string) => void;
+}) {
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Underline,
+      Link.configure({ openOnClick: false }),
+      TextAlign.configure({
+        types: ["heading", "paragraph"],
+      }),
+      CustomTextStyle,
+      Color,
+      FontFamily.configure({
+        types: ["textStyle"],
+      }),
+    ],
+    content: value,
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
+    },
+    immediatelyRender: false,
+  });
 
   if (!editor) {
     return null;
@@ -72,7 +77,7 @@ const editor = useEditor({
         <button
           onClick={() => editor.chain().focus().toggleBold().run()}
           disabled={!editor.can().chain().focus().toggleBold().run()}
-          className={`p-2 rounded transition-colors ${editor.isActive('bold') ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          className={`p-2 rounded transition-colors ${editor.isActive("bold") ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Bold"
         >
           <Bold size={16} />
@@ -80,7 +85,7 @@ const editor = useEditor({
         <button
           onClick={() => editor.chain().focus().toggleItalic().run()}
           disabled={!editor.can().chain().focus().toggleItalic().run()}
-          className={`p-2 rounded transition-colors ${editor.isActive('italic') ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          className={`p-2 rounded transition-colors ${editor.isActive("italic") ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Italic"
         >
           <Italic size={16} />
@@ -88,72 +93,80 @@ const editor = useEditor({
         <button
           onClick={() => editor.chain().focus().toggleUnderline().run()}
           disabled={!editor.can().chain().focus().toggleUnderline().run()}
-          className={`p-2 rounded transition-colors ${editor.isActive('underline') ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          className={`p-2 rounded transition-colors ${editor.isActive("underline") ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Underline"
         >
           <UnderlineIcon size={16} />
         </button>
         <div className="border-l border-slate-500 mx-1" />
         <button
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-          className={`p-2 rounded transition-colors ${editor.isActive('heading', { level: 2 }) ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          onClick={() =>
+            editor.chain().focus().toggleHeading({ level: 2 }).run()
+          }
+          className={`p-2 rounded transition-colors ${editor.isActive("heading", { level: 2 }) ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Heading"
         >
           <Heading2 size={16} />
         </button>
         <button
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className={`p-2 rounded transition-colors ${editor.isActive('bulletList') ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          className={`p-2 rounded transition-colors ${editor.isActive("bulletList") ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Bullet List"
         >
           <List size={16} />
         </button>
         <button
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className={`p-2 rounded transition-colors ${editor.isActive('orderedList') ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          className={`p-2 rounded transition-colors ${editor.isActive("orderedList") ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Ordered List"
         >
           <ListOrdered size={16} />
         </button>
         <button
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          className={`p-2 rounded transition-colors ${editor.isActive('blockquote') ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          className={`p-2 rounded transition-colors ${editor.isActive("blockquote") ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Blockquote"
         >
           <Quote size={16} />
         </button>
         <button
           onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-          className={`p-2 rounded transition-colors ${editor.isActive('codeBlock') ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          className={`p-2 rounded transition-colors ${editor.isActive("codeBlock") ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Code Block"
         >
           <Code2 size={16} />
         </button>
         <div className="border-l border-slate-500 mx-1" />
         <button
-          onClick={() => editor.chain().focus().setTextAlign('left').run()}
-          className={`p-2 rounded transition-colors ${editor.isActive({ textAlign: 'left' }) ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          onClick={() => editor.chain().focus().setTextAlign("left").run()}
+          className={`p-2 rounded transition-colors ${editor.isActive({ textAlign: "left" }) ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Align Left"
         >
           <AlignLeft size={16} />
         </button>
         <button
-          onClick={() => editor.chain().focus().setTextAlign('center').run()}
-          className={`p-2 rounded transition-colors ${editor.isActive({ textAlign: 'center' }) ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          onClick={() => editor.chain().focus().setTextAlign("center").run()}
+          className={`p-2 rounded transition-colors ${editor.isActive({ textAlign: "center" }) ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Align Center"
         >
           <AlignCenter size={16} />
         </button>
         <button
-          onClick={() => editor.chain().focus().setTextAlign('right').run()}
-          className={`p-2 rounded transition-colors ${editor.isActive({ textAlign: 'right' }) ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+          onClick={() => editor.chain().focus().setTextAlign("right").run()}
+          className={`p-2 rounded transition-colors ${editor.isActive({ textAlign: "right" }) ? "bg-indigo-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}
           title="Align Right"
         >
           <AlignRight size={16} />
         </button>
         <div className="border-l border-slate-500 mx-1" />
         <button
-          onClick={() => editor.chain().focus().setLink({ href: prompt('Enter URL:') || '' }).run()}
+          onClick={() =>
+            editor
+              .chain()
+              .focus()
+              .setLink({ href: prompt("Enter URL:") || "" })
+              .run()
+          }
           className={`p-2 rounded transition-colors bg-slate-700 text-slate-300 hover:bg-slate-600`}
           title="Add Link"
         >
@@ -167,47 +180,46 @@ const editor = useEditor({
           <RotateCcw size={16} />
         </button>
         <select
-  value={editor.getAttributes("textStyle").fontFamily || ""}
-  onChange={(e) =>
-    editor.chain().focus().setFontFamily(e.target.value).run()
-  }
-  className="px-2 py-1 bg-slate-700 text-slate-200 rounded text-xs"
->
-  <option value="">Default</option>
-  <option value="Arial">Arial</option>
-  <option value="Helvetica">Helvetica</option>
-  <option value="Times New Roman">Times New Roman</option>
-  <option value="Georgia">Georgia</option>
-  <option value="Courier New">Courier New</option>
-</select>
+          value={editor.getAttributes("textStyle").fontFamily || ""}
+          onChange={(e) =>
+            editor.chain().focus().setFontFamily(e.target.value).run()
+          }
+          className="px-2 py-1 bg-slate-700 text-slate-200 rounded text-xs"
+        >
+          <option value="">Default</option>
+          <option value="Arial">Arial</option>
+          <option value="Helvetica">Helvetica</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Courier New">Courier New</option>
+        </select>
 
-<select
-  onChange={(e) =>
-    editor
-      .chain()
-      .focus()
-      .setMark("textStyle", { fontSize: e.target.value })
-      .run()
-  }
-  className="px-2 py-1 bg-slate-700 text-slate-200 rounded text-xs"
->
-  <option value="">Size</option>
-  <option value="12px">12</option>
-  <option value="14px">14</option>
-  <option value="16px">16</option>
-  <option value="18px">18</option>
-  <option value="24px">24</option>
-</select>
+        <select
+          onChange={(e) =>
+            editor
+              .chain()
+              .focus()
+              .setMark("textStyle", { fontSize: e.target.value })
+              .run()
+          }
+          className="px-2 py-1 bg-slate-700 text-slate-200 rounded text-xs"
+        >
+          <option value="">Size</option>
+          <option value="12px">12</option>
+          <option value="14px">14</option>
+          <option value="16px">16</option>
+          <option value="18px">18</option>
+          <option value="24px">24</option>
+        </select>
 
-<input
-  type="color"
-  value={editor.getAttributes("textStyle").color || "#ffffff"}
-  onChange={(e) =>
-    editor.chain().focus().setColor(e.target.value).run()
-  }
-  className="w-8 h-8 p-0 bg-transparent cursor-pointer"
-/>
-
+        <input
+          type="color"
+          value={editor.getAttributes("textStyle").color || "#ffffff"}
+          onChange={(e) =>
+            editor.chain().focus().setColor(e.target.value).run()
+          }
+          className="w-8 h-8 p-0 bg-transparent cursor-pointer"
+        />
       </div>
 
       {/* Editor Content */}
