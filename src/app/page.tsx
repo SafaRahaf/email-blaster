@@ -167,6 +167,7 @@ export default function EmailBlaster() {
   // --- State ---
   const [senders, setSenders] = useState<Sender[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
+  const [replyTo, setReplyTo] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPasswords, setShowPasswords] = useState(false);
   const [activeTab, setActiveTab] = useState<"senders" | "config">("senders");
@@ -184,7 +185,7 @@ export default function EmailBlaster() {
   const [emailBody, setEmailBody] = useState(
     "<p>Hello,</p><p>We have an exciting opportunity for you!</p>",
   );
-  const [isSimulation, setIsSimulation] = useState(true);
+  const [isSimulation, setIsSimulation] = useState(false);
 
   const STARTING_WEIGHT = 10; // or any default value you want
   const sendersRef = useRef<Sender[]>([]);
@@ -323,30 +324,33 @@ export default function EmailBlaster() {
   const loadDemoData = () => {
     // Reset to "celldata" format for demo
     const demoSheet = {
-      id: 'leads',
-      name: 'Leads',
+      id: "leads",
+      name: "Leads",
       status: 1,
       order: 0,
       celldata: [
-        { r: 0, c: 0, v: { v: 'Email', bl: 1 } },
-        { r: 0, c: 1, v: { v: 'Status', bl: 1 } },
-        { r: 0, c: 2, v: { v: 'Time', bl: 1 } },
-        { r: 0, c: 3, v: { v: 'Date', bl: 1 } },
-        { r: 0, c: 4, v: { v: 'Note', bl: 1 } },
-        { r: 1, c: 0, v: { v: 'safaragak+1@gmail.com' } },
-        { r: 1, c: 1, v: { v: 'Pending' } },
+        { r: 0, c: 0, v: { v: "Email", bl: 1 } },
+        { r: 0, c: 1, v: { v: "Status", bl: 1 } },
+        { r: 0, c: 2, v: { v: "Time", bl: 1 } },
+        { r: 0, c: 3, v: { v: "Date", bl: 1 } },
+        { r: 0, c: 4, v: { v: "Note", bl: 1 } },
+        { r: 1, c: 0, v: { v: "safaragak+1@gmail.com" } },
+        { r: 1, c: 1, v: { v: "Pending" } },
       ],
-      config: { columnlen: { 0: 260, 1: 120, 2: 120, 3: 120, 4: 300 } }
+      config: { columnlen: { 0: 260, 1: 120, 2: 120, 3: 120, 4: 300 } },
     };
     // Set flag to prevent onSheetChange from overwriting during initialization
     loadingDemoRef.current = true;
     setSheetData([demoSheet]);
-    localStorage.setItem('eb_sheet', JSON.stringify([demoSheet]));
-    addLog('✓ Demo data loaded (1 test lead)', 'success');
+    localStorage.setItem("eb_sheet", JSON.stringify([demoSheet]));
+    addLog("✓ Demo data loaded (1 test lead)", "success");
     // Validate immediately to show user it worked
     setTimeout(() => {
       const rows = extractRowsFromSheet(demoSheet);
-      addLog(`📊 Demo verified: ${rows.length - 1} leads ready to send`, 'info');
+      addLog(
+        `📊 Demo verified: ${rows.length - 1} leads ready to send`,
+        "info",
+      );
     }, 100);
   };
 
@@ -489,7 +493,7 @@ export default function EmailBlaster() {
       );
     }
   };
-const start = async () => {
+  const start = async () => {
     if (isProcessing) return;
     if (senders.filter((s) => s.active).length === 0) {
       addLog("❌ No active senders configured", "error");
@@ -597,6 +601,7 @@ const start = async () => {
               receiver: { email },
               subject: emailSubject,
               html: emailBody,
+              replyTo: replyTo || sender.email,
             }),
           });
           const json = await res.json();
@@ -884,6 +889,18 @@ const start = async () => {
                 />
               </div>
               <div>
+                <label className="text-xs font-bold text-slate-400">
+                  Reply To
+                </label>
+                <input
+                  type="text"
+                  value={replyTo}
+                  onChange={(e) => setReplyTo(e.target.value)}
+                  placeholder="optional@domain.com"
+                  className="w-full bg-slate-700 text-white px-3 py-2 rounded mt-1 text-sm"
+                />
+              </div>
+              <div>
                 <label className="text-xs font-bold text-slate-400 mb-2 block">
                   HTML Body
                 </label>
@@ -942,7 +959,7 @@ const start = async () => {
                   Email | Status | Time | Date | Note
                 </p>
               </div>
-                {/* <button
+              {/* <button
                   onClick={loadDemoData}
                   className="flex items-center gap-2 px-3 py-2 bg-green-600 rounded text-sm hover:bg-green-500"
                 >
