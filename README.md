@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Email Blaster
 
-## Getting Started
+A single-page email campaign workspace built with Next.js. The browser handles the spreadsheet, templates, batching, and local persistence; email delivery runs through the `/api/send-email` Node.js serverless function. There is no always-on application server, but the app must be deployed to a host that supports Next.js serverless route handlers.
 
-First, run the development server:
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Sending uses Gmail SMTP, so enter an active Gmail address and its Google app password in the Senders panel. Gmail app passwords require two-step verification. For live sending, use a small test list first.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Use
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Import a CSV or edit the Leads sheet. The first row must contain an `Email` header. Optional headers include `First_Name`, `Last_Name`, and `From_Email`; missing `Status`, `Time`, `Date`, and `Note` columns are added automatically.
+2. Configure one or more active Gmail senders. A row's `From_Email`, when present, must match an active configured sender; otherwise the row is marked failed. Without it, senders are selected according to their remaining weights.
+3. Use `{{first_name}}`, `{{last_name}}`, or any other CSV header as a placeholder in the subject and HTML body.
+4. Choose a batch size and optional attachments, then Start. The app advances through all pending rows, applies each sender's delay and weight, and updates the sheet with results. Simulation Mode exercises the flow without sending.
+5. Download CSV to export the current sheet, including delivery statuses.
 
-## Learn More
+Files attached to each email may total up to 3 MB. Gmail's own quotas and anti-abuse limits still apply; this tool does not bypass them.
 
-To learn more about Next.js, take a look at the following resources:
+## Data and credentials
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Lead sheets and sender configuration are stored in this browser's `localStorage`. Sender passwords are held only in page memory, are removed from any legacy saved sender data, and must be entered again after a reload. During delivery, the password and email content are sent over HTTPS to the serverless route, which connects to Gmail over TLS.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deploy
 
-## Deploy on Vercel
+Deploy this project to Vercel or another Next.js-compatible serverless host. Do not configure a static export: the `/api/send-email` route needs a Node.js runtime and outbound SMTP access. No deployment SMTP secret is required because each user supplies their own Gmail app password in the page.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Run checks before deployment:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run lint
+npx tsc --noEmit
+npm run build
+```

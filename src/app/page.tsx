@@ -10,16 +10,19 @@ import {
     Play,
     Pause,
     Settings,
-    Mail,
     Users,
     Terminal,
     Plus,
     AlertCircle,
     CheckCircle2,
     Database,
-    RefreshCw,
     Send,
     Clock,
+    BookOpen,
+    Download,
+    Upload,
+    Paperclip,
+    X,
 } from "lucide-react";
 import { EmailBodyEditor } from "./components/Email.body";
 
@@ -42,6 +45,39 @@ interface Log {
     type: "info" | "success" | "error" | "warn";
     time: string;
 }
+
+interface SheetCell {
+    r: number;
+    c: number;
+    v: unknown;
+}
+
+type WorkbookSheet = React.ComponentProps<typeof Workbook>["data"][number];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+
+const cellText = (cell: unknown): string => {
+    if (cell === null || cell === undefined) return "";
+    if (!isRecord(cell)) return String(cell);
+    const value = cell.v ?? cell.m;
+    return value !== null && typeof value === "object"
+        ? ""
+        : String(value ?? "").trim();
+};
+
+const senderForStorage = (sender: Sender) => ({
+    id: sender.id,
+    email: sender.email,
+    weight: sender.weight,
+    active: sender.active,
+    name: sender.name,
+    minDelay: sender.minDelay,
+    maxDelay: sender.maxDelay,
+    maxWeight: sender.maxWeight,
+    remaining: sender.remaining,
+    currentWeight: sender.currentWeight,
+});
 
 // --- Utilities ---
 
@@ -100,70 +136,108 @@ const getRandomDelay = (min: number, max: number): number => {
     );
 };
 
-const selectSenderWeighted = (senders: Sender[]): Sender | null => {
-    const active = senders.filter((s) => s.active);
-    if (active.length === 0) return null;
-
-    const totalWeight = active.reduce((sum, s) => sum + s.weight, 0);
-    let random = Math.random() * totalWeight;
-
-    for (const sender of active) {
-        random -= sender.weight;
-        if (random <= 0) return sender;
-    }
-
-    return active[0];
-};
-
-// const getRandomDelay = (min: number, max: number): number => {
-//   return Math.floor(Math.random() * (max - min + 1) + min) * 1000;
-// };
-
-// --- FIX: ROBUST DATA EXTRACTOR (Handles 'data' AND 'celldata') ---
-const extractRowsFromSheet = (sheet: any): string[][] => {
+const extractRowsFromSheet = (sheet: WorkbookSheet | undefined): string[][] => {
     if (!sheet) return [];
     const rows: string[][] = [];
 
-    // CASE 1: The "data" format (2D Array) - Manual Typing
-    if (sheet.data && Array.isArray(sheet.data) && sheet.data.length > 0) {
-        sheet.data.forEach((rowData: any[], r: number) => {
+    if (sheet.data && sheet.data.length > 0) {
+        sheet.data.forEach((rowData, r) => {
             if (!rowData) return;
             if (!rows[r]) rows[r] = [];
-            rowData.forEach((cell: any, c: number) => {
-                let value = "";
-                if (cell !== null && cell !== undefined) {
-                    value = cell.v ?? cell.m ?? String(cell);
-                    if (typeof value === "object") value = "";
-                }
-                rows[r][c] = String(value).trim();
+            rowData.forEach((cell, c) => {
+                rows[r][c] = cellText(cell);
             });
         });
-    }
-    // CASE 2: The "celldata" format (Sparse Array) - Demo Data
-    else if (sheet.celldata && Array.isArray(sheet.celldata)) {
-        sheet.celldata.forEach((cell: any) => {
+    } else if (sheet.celldata) {
+        sheet.celldata.forEach((cell) => {
             const r = cell.r;
             const c = cell.c;
-            let value = "";
-            if (cell.v !== null && cell.v !== undefined) {
-                if (typeof cell.v === "object") {
-                    value = cell.v.v ?? cell.v.m ?? "";
-                } else {
-                    value = String(cell.v);
-                }
-            }
             if (!rows[r]) rows[r] = [];
-            rows[r][c] = String(value).trim();
+            rows[r][c] = cellText(cell.v);
         });
     }
-    return rows.filter((row) => row && row.some((cell) => cell !== ""));
+    while (rows.length && !rows[rows.length - 1].some((cell) => cell !== "")) {
+        rows.pop();
+    }
+    return rows;
+};
+
+const normalizeHeader = (value: string) =>
+    value.trim().toLowerCase().replace(/\s+/g, "_");
+
+const csvEscape = (value: string) =>
+    `"${value.replace(/"/g, '""')}"`;
+
+const parseCsv = (text: string): string[][] => {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let value = "";
+    let quoted = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (quoted) {
+            if (char === '"' && text[i + 1] === '"') {
+                value += '"';
+                i++;
+            } else if (char === '"') {
+                quoted = false;
+            } else {
+                value += char;
+            }
+        } else if (char === '"') {
+            quoted = true;
+        } else if (char === ",") {
+            row.push(value);
+            value = "";
+        } else if (char === "\n" || char === "\r") {
+            if (char === "\r" && text[i + 1] === "\n") i++;
+            row.push(value);
+            if (row.some((cell) => cell.trim())) rows.push(row);
+            row = [];
+            value = "";
+        } else {
+            value += char;
+        }
+    }
+
+    row.push(value);
+    if (row.some((cell) => cell.trim())) rows.push(row);
+    if (quoted) throw new Error("The CSV file contains an unclosed quote.");
+    return rows;
+};
+
+const personalize = (
+    template: string,
+    values: Record<string, string>,
+    escapeHtml: boolean,
+) =>
+    template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key: string) => {
+        const value = values[normalizeHeader(key)] ?? "";
+        return escapeHtml
+            ? value
+                  .replace(/&/g, "&amp;")
+                  .replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;")
+                  .replace(/"/g, "&quot;")
+                  .replace(/'/g, "&#39;")
+            : value;
+    });
+
+const toBase64 = (bytes: Uint8Array) => {
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
 };
 
 // --- MAIN COMPONENT ---
 
 export default function EmailBlaster() {
-    const workbookRef = useRef<any>(null);
     const stopRef = useRef(false);
+    const runLockRef = useRef(false);
 
     // --- State ---
     const [senders, setSenders] = useState<Sender[]>([]);
@@ -171,7 +245,9 @@ export default function EmailBlaster() {
     const [replyTo, setReplyTo] = useState("");
     const [isProcessing, setIsProcessing] = useState(false);
     const [showPasswords, setShowPasswords] = useState(false);
-    const [activeTab, setActiveTab] = useState<"senders" | "config">("senders");
+    const [activeTab, setActiveTab] = useState<
+        "senders" | "config" | "instructions"
+    >("senders");
 
     // Config State
     // Note: Min/Max Delay moved to Sender object.
@@ -187,12 +263,14 @@ export default function EmailBlaster() {
         "<p>Hello,</p><p>We have an exciting opportunity for you!</p>",
     );
     const [isSimulation, setIsSimulation] = useState(false);
+    const [batchSize, setBatchSize] = useState(10);
+    const [attachments, setAttachments] = useState<File[]>([]);
+    const [storageLoaded, setStorageLoaded] = useState(false);
 
-    const STARTING_WEIGHT = 10; // or any default value you want
     const sendersRef = useRef<Sender[]>([]);
 
     const senderWeightsRef = useRef<{ [key: string]: number }>({});
-    const [sheetData, setSheetData] = useState<any[]>([
+    const [sheetData, setSheetData] = useState<WorkbookSheet[]>([
         {
             id: "leads",
             name: "Leads",
@@ -200,12 +278,15 @@ export default function EmailBlaster() {
             order: 0,
             celldata: [
                 { r: 0, c: 0, v: { v: "Email", bl: 1 } },
-                { r: 0, c: 1, v: { v: "Status", bl: 1 } },
-                { r: 0, c: 2, v: { v: "Time", bl: 1 } },
-                { r: 0, c: 3, v: { v: "Date", bl: 1 } },
-                { r: 0, c: 4, v: { v: "Note", bl: 1 } },
+                { r: 0, c: 1, v: { v: "First_Name", bl: 1 } },
+                { r: 0, c: 2, v: { v: "Last_Name", bl: 1 } },
+                { r: 0, c: 3, v: { v: "From_Email", bl: 1 } },
+                { r: 0, c: 4, v: { v: "Status", bl: 1 } },
+                { r: 0, c: 5, v: { v: "Time", bl: 1 } },
+                { r: 0, c: 6, v: { v: "Date", bl: 1 } },
+                { r: 0, c: 7, v: { v: "Note", bl: 1 } },
             ],
-            config: { columnlen: { 0: 260, 1: 120, 2: 120, 3: 120, 4: 300 } },
+            config: { columnlen: { 0: 260, 1: 140, 2: 140, 3: 240, 4: 120, 5: 120, 6: 120, 7: 300 } },
         },
     ]);
 
@@ -215,16 +296,28 @@ export default function EmailBlaster() {
         const savedSheet = localStorage.getItem("eb_sheet");
         if (saved) {
             try {
-                const parsed = JSON.parse(saved);
-                // Migration: Ensure old data has minDelay/maxDelay
-                const migrated = parsed.map((s: any) => ({
-                    ...s,
-                    minDelay: s.minDelay || 5,
-                    maxDelay: s.maxDelay || 15,
-                    maxWeight: s.maxWeight ?? s.weight ?? 1,
-                    remaining: s.remaining ?? s.weight ?? 1,
+                const parsed: unknown = JSON.parse(saved);
+                if (!Array.isArray(parsed)) throw new Error("Saved senders are invalid.");
+                const migrated = parsed.filter(isRecord).map((s) => ({
+                    id: typeof s.id === "string" ? s.id : crypto.randomUUID(),
+                    email: typeof s.email === "string" ? s.email : "",
+                    password: "",
+                    weight: typeof s.weight === "number" ? s.weight : 1,
+                    active: typeof s.active === "boolean" ? s.active : true,
+                    name: typeof s.name === "string" ? s.name : "",
+                    minDelay: typeof s.minDelay === "number" ? s.minDelay : 5,
+                    maxDelay: typeof s.maxDelay === "number" ? s.maxDelay : 15,
+                    maxWeight:
+                        typeof s.maxWeight === "number"
+                            ? s.maxWeight
+                            : (typeof s.weight === "number" ? s.weight : 1),
+                    remaining:
+                        typeof s.remaining === "number"
+                            ? s.remaining
+                            : (typeof s.weight === "number" ? s.weight : 1),
                 }));
                 setSenders(migrated);
+                localStorage.setItem("eb_senders", JSON.stringify(migrated.map(senderForStorage)));
             } catch (e) {
                 console.error(e);
             }
@@ -246,26 +339,39 @@ export default function EmailBlaster() {
         }
         if (savedSheet) {
             try {
-                setSheetData(JSON.parse(savedSheet));
+                const parsed: unknown = JSON.parse(savedSheet);
+                if (
+                    !Array.isArray(parsed) ||
+                    !parsed.every(
+                        (item) =>
+                            isRecord(item) &&
+                            (item.data === undefined || Array.isArray(item.data)) &&
+                            (item.celldata === undefined || Array.isArray(item.celldata)),
+                    )
+                ) {
+                    throw new Error("Saved lead sheet is invalid.");
+                }
+                setSheetData(parsed as WorkbookSheet[]);
             } catch (e) {
                 console.error(e);
             }
         }
+        setStorageLoaded(true);
     }, []);
 
     useEffect(() => {
-        localStorage.setItem("eb_senders", JSON.stringify(senders));
+        if (!storageLoaded) return;
+        localStorage.setItem("eb_senders", JSON.stringify(senders.map(senderForStorage)));
 
-        // Only update the Ref's CONFIGURATION (email, pass, etc),
-        // but preserve the runtime currentWeight from the Ref itself if it exists.
         sendersRef.current = senders.map((s) => ({
             ...s,
             currentWeight: senderWeightsRef.current[s.id] ?? s.currentWeight,
         }));
-    }, [senders]);
+    }, [senders, storageLoaded]);
     useEffect(() => {
+        if (!storageLoaded) return;
         localStorage.setItem("eb_sheet", JSON.stringify(sheetData));
-    }, [sheetData]);
+    }, [sheetData, storageLoaded]);
 
     const addLog = (msg: string, type: Log["type"] = "info") => {
         const { time } = getCurrentTimestamp();
@@ -292,8 +398,6 @@ export default function EmailBlaster() {
         ]);
     };
 
-    const loadingDemoRef = useRef(false);
-
     const updateSender = (id: string, updates: Partial<Sender>) => {
         setSenders(
             senders.map((s) => {
@@ -317,140 +421,131 @@ export default function EmailBlaster() {
     };
 
     // --- Sheet Logic ---
-    const onSheetChange = (data: any[]) => {
+    const onSheetChange = (data: WorkbookSheet[]) => {
         setSheetData(data);
         localStorage.setItem("eb_sheet", JSON.stringify(data));
     };
 
-    const loadDemoData = () => {
-        // Reset to "celldata" format for demo
-        const demoSheet = {
-            id: "leads",
-            name: "Leads",
-            status: 1,
-            order: 0,
-            celldata: [
-                { r: 0, c: 0, v: { v: "Email", bl: 1 } },
-                { r: 0, c: 1, v: { v: "Status", bl: 1 } },
-                { r: 0, c: 2, v: { v: "Time", bl: 1 } },
-                { r: 0, c: 3, v: { v: "Date", bl: 1 } },
-                { r: 0, c: 4, v: { v: "Note", bl: 1 } },
-                { r: 1, c: 0, v: { v: "safaragak+1@gmail.com" } },
-                { r: 1, c: 1, v: { v: "Pending" } },
-            ],
-            config: { columnlen: { 0: 260, 1: 120, 2: 120, 3: 120, 4: 300 } },
-        };
-        // Set flag to prevent onSheetChange from overwriting during initialization
-        loadingDemoRef.current = true;
-        setSheetData([demoSheet]);
-        localStorage.setItem("eb_sheet", JSON.stringify([demoSheet]));
-        addLog("✓ Demo data loaded (1 test lead)", "success");
-        // Validate immediately to show user it worked
-        setTimeout(() => {
-            const rows = extractRowsFromSheet(demoSheet);
+    const importCsv = async (file?: File) => {
+        if (!file) return;
+        try {
+            const parsed = parseCsv(await file.text());
+            if (parsed.length < 2) throw new Error("The CSV must include a header and at least one lead.");
+
+            const headers = parsed[0].map(normalizeHeader);
+            const emailIndex = headers.indexOf("email");
+            if (emailIndex < 0) throw new Error("The CSV needs an Email column.");
+
+            for (const required of ["status", "time", "date", "note"]) {
+                if (!headers.includes(required)) headers.push(required);
+            }
+
+            const statusIndex = headers.indexOf("status");
+            const cells = parsed.slice(1).map((sourceRow) => {
+                const row = headers.map((header, index) => {
+                    if (index >= parsed[0].length) return "";
+                    return sourceRow[index] ?? "";
+                });
+                if (!row[statusIndex]?.trim()) row[statusIndex] = "Pending";
+                return row;
+            });
+            const celldata = [
+                ...headers.map((header, c) => ({
+                    r: 0,
+                    c,
+                    v: { v: header, bl: 1 },
+                })),
+                ...cells.flatMap((row, r) =>
+                    row.map((value, c) => ({ r: r + 1, c, v: { v: value } })),
+                ),
+            ];
+            const importedSheet = {
+                id: "leads",
+                name: "Leads",
+                status: 1,
+                order: 0,
+                celldata,
+            };
+            setSheetData([importedSheet]);
+            addLog(`Imported ${cells.length} lead rows from ${file.name}.`, "success");
+        } catch (error) {
             addLog(
-                `📊 Demo verified: ${rows.length - 1} leads ready to send`,
-                "info",
+                error instanceof Error ? error.message : "Could not import CSV.",
+                "error",
             );
-        }, 100);
+        }
+    };
+
+    const downloadCsv = () => {
+        const rows = extractRowsFromSheet(sheetData[0]);
+        const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\r\n");
+        const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "email-blaster-leads.csv";
+        link.click();
+        URL.revokeObjectURL(url);
     };
 
     const validateSheet = () => {
         const rows = extractRowsFromSheet(sheetData[0]);
-        addLog(`📊 Sheet analysis: ${rows.length} rows found`, "info");
-
-        if (rows.length <= 1) {
-            addLog("❌ No data rows found.", "error");
+        const headers = (rows[0] ?? []).map(normalizeHeader);
+        const emailIndex = headers.indexOf("email");
+        if (emailIndex < 0) {
+            addLog("The sheet needs an Email column in its first row.", "error");
             return;
         }
 
-        rows.slice(1).forEach((row, i) => {
-            addLog(
-                `  Row ${i + 1}: ${row[0] || "(empty)"} | ${row[1] || "Pending"}`,
-                "info",
-            );
-        });
-
-        addLog(`✓ Ready to process ${rows.length - 1} leads`, "success");
+        const leads = rows.slice(1).filter((row) => row[emailIndex]?.trim());
+        const valid = leads.filter((row) =>
+            /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row[emailIndex].trim()),
+        );
+        addLog(
+            `Sheet check: ${valid.length} valid email(s), ${leads.length - valid.length} invalid or incomplete row(s).`,
+            valid.length ? "success" : "error",
+        );
     };
 
     // Helper to visually update the sheet (Status/Time)
-    const updateCell = (rowIdx: number, colIdx: number, value: string) => {
-        setSheetData((prev) => {
-            // Deep copy to ensure state update triggers
-            const newSheetData = JSON.parse(JSON.stringify(prev));
-            const sheet = newSheetData[0];
-
-            // If we are in "data" mode (2D array)
-            if (sheet.data && Array.isArray(sheet.data)) {
-                if (!sheet.data[rowIdx]) sheet.data[rowIdx] = [];
-                // Preserve existing formatting if possible, just update v
-                const existing = sheet.data[rowIdx][colIdx] || {};
-                sheet.data[rowIdx][colIdx] = {
-                    ...existing,
-                    v: value,
-                    m: value,
-                };
-            }
-            // If we are in "celldata" mode (Sparse array)
-            else {
-                if (!sheet.celldata) sheet.celldata = [];
-                const idx = sheet.celldata.findIndex(
-                    (c: any) => c.r === rowIdx && c.c === colIdx,
-                );
-                if (idx >= 0) {
-                    sheet.celldata[idx].v = {
-                        ...sheet.celldata[idx].v,
-                        v: value,
-                    };
-                } else {
-                    sheet.celldata.push({
-                        r: rowIdx,
-                        c: colIdx,
-                        v: { v: value },
-                    });
-                }
-            }
-
-            // Save
-            localStorage.setItem("eb_sheet", JSON.stringify(newSheetData));
-            return newSheetData;
-        });
-    };
-
     // --- ENGINE ---
-    const getNextSender = (): Sender | null => {
-        const activeSenders = senders.filter((s) => s.active);
+    const getNextSender = (preferredEmail?: string): Sender | null => {
+        const activeSenders = senders.filter(
+            (s) =>
+                s.active &&
+                (!preferredEmail ||
+                    s.email.trim().toLowerCase() === preferredEmail.toLowerCase()),
+        );
         if (activeSenders.length === 0) return null;
 
-        // Sort by: Current Weight (Desc) -> Then by Index (Asc)
         activeSenders.sort((a, b) => {
             const weightA = senderWeightsRef.current[a.id] || 0;
             const weightB = senderWeightsRef.current[b.id] || 0;
             return weightB - weightA;
         });
 
-        const topSender = activeSenders[0];
-        const topWeight = senderWeightsRef.current[topSender.id] || 0;
-
-        // If highest available weight is 0, ALL are 0
-        if (topWeight <= 0) return null;
-
-        return topSender;
+        return activeSenders.find(
+            (sender) => (senderWeightsRef.current[sender.id] ?? 0) > 0,
+        ) ?? null;
     };
 
-    // 3. Performance Fix: Update all 4 cells in ONE render
     const updateRowStatus = (
         rowIdx: number,
         status: string,
         time: string,
         date: string,
         note: string,
+        headers: string[],
     ) => {
         setSheetData((prev) => {
             const newSheetData = JSON.parse(JSON.stringify(prev));
             const sheet = newSheetData[0];
 
+            const columns = [
+                ["status", status],
+                ["time", time],
+                ["date", date],
+                ["note", note],
+            ] as const;
             const updateSingleCell = (r: number, c: number, val: string) => {
                 if (sheet.data && Array.isArray(sheet.data)) {
                     if (!sheet.data[r]) sheet.data[r] = [];
@@ -459,7 +554,7 @@ export default function EmailBlaster() {
                 } else {
                     if (!sheet.celldata) sheet.celldata = [];
                     const idx = sheet.celldata.findIndex(
-                        (cell: any) => cell.r === r && cell.c === c,
+                        (cell: SheetCell) => cell.r === r && cell.c === c,
                     );
                     if (idx >= 0)
                         sheet.celldata[idx].v = {
@@ -470,10 +565,10 @@ export default function EmailBlaster() {
                 }
             };
 
-            updateSingleCell(rowIdx, 1, status);
-            updateSingleCell(rowIdx, 2, time);
-            updateSingleCell(rowIdx, 3, date);
-            updateSingleCell(rowIdx, 4, note);
+            columns.forEach(([name, value]) => {
+                const index = headers.indexOf(name);
+                if (index >= 0) updateSingleCell(rowIdx, index, value);
+            });
 
             localStorage.setItem("eb_sheet", JSON.stringify(newSheetData));
             return newSheetData;
@@ -481,15 +576,19 @@ export default function EmailBlaster() {
     };
 
     const resetAllWeights = () => {
-        // 1. Reset Ref
         senderWeightsRef.current = {};
         sendersRef.current.forEach((s) => {
-            senderWeightsRef.current[s.id] = STARTING_WEIGHT;
+            senderWeightsRef.current[s.id] = s.active
+                ? (s.maxWeight ?? s.weight)
+                : 0;
         });
 
-        // 2. Reset UI State
         setSenders((prev) =>
-            prev.map((s) => ({ ...s, currentWeight: STARTING_WEIGHT })),
+            prev.map((s) => ({
+                ...s,
+                remaining: s.active ? (s.maxWeight ?? s.weight) : 0,
+                currentWeight: s.active ? (s.maxWeight ?? s.weight) : 0,
+            })),
         );
     };
 
@@ -499,10 +598,8 @@ export default function EmailBlaster() {
         if (current > 0) {
             const newVal = current - 1;
 
-            // 1. Update Source of Truth immediately
             senderWeightsRef.current[senderId] = newVal;
 
-            // 2. Update UI (Visuals)
             setSenders((prev) =>
                 prev.map((s) =>
                     s.id === senderId ? { ...s, remaining: newVal } : s,
@@ -511,144 +608,238 @@ export default function EmailBlaster() {
         }
     };
     const start = async () => {
-        if (isProcessing) return;
-        if (senders.filter((s) => s.active).length === 0) {
+        if (runLockRef.current || isProcessing) return;
+        const activeSenders = senders.filter((s) => s.active);
+        if (activeSenders.length === 0) {
             addLog("❌ No active senders configured", "error");
             return;
         }
 
-        const rows = extractRowsFromSheet(sheetData[0]);
+        if (!isSimulation && activeSenders.some((s) => !s.email || !s.password)) {
+            addLog("Enter an email and app password for every active sender.", "error");
+            return;
+        }
+
+        const currentSheet: WorkbookSheet = JSON.parse(
+            JSON.stringify(sheetData[0]),
+        );
+        let rows = extractRowsFromSheet(currentSheet);
         if (!rows || rows.length <= 1) {
             addLog("❌ No leads to process.", "error");
             return;
         }
 
-        setIsProcessing(true);
-        stopRef.current = false;
+        const headers = (rows[0] ?? []).map(normalizeHeader);
+        const originalHeaderCount = headers.length;
+        const emailIndex = headers.indexOf("email");
+        if (emailIndex < 0) {
+            addLog("The sheet needs an Email column in its first row.", "error");
+            return;
+        }
 
-        // --- CRITICAL FIX: Sync Logic with UI before starting ---
-        // We populate the internal Ref using the values currently shown in the UI.
-        // If we don't do this, the engine sees "0" weight even if UI shows "10".
-        senders.forEach((s) => {
-            // Use the 'remaining' value if it exists, otherwise default to 10
-            const weightToUse =
-                s.remaining !== undefined && s.remaining !== null
-                    ? s.remaining
-                    : STARTING_WEIGHT;
-
-            senderWeightsRef.current[s.id] = weightToUse;
-        });
-
-        addLog(`🚀 Engine started...`, "info");
-
-        for (let i = 1; i < rows.length; i++) {
-            if (stopRef.current) break;
-
-            const email = rows[i] ? rows[i][0] : "";
-            const status = rows[i] ? rows[i][1] : "";
-
-            if (!email || !email.includes("@")) continue;
-            if (status === "Completed" || status === "Failed") continue;
-
-            let sender = getNextSender();
-
-            // --- LOGIC: Handle Weight Exhaustion (Timeout & Reset) ---
-            if (!sender) {
-                // USE NEW HELPER HERE
-                const timeoutMs = calculateTimeoutMs(
-                    minTimeout,
-                    maxTimeout,
-                    timeoutUnit,
-                );
-
-                // Log the exact time so you know it's working
-                const displayTime = (timeoutMs / 1000).toFixed(0);
-                addLog(
-                    `⏳ All weights exhausted (0). Waiting ${displayTime}s (${timeoutUnit} mode) to reset...`,
-                    "warn",
-                );
-
-                // Wait
-                await delay(timeoutMs);
-
-                // Reset
-                resetAllWeights();
-                addLog("↻ Timeout complete. Weights reset to 10.", "success");
-
-                // Retry selection
-                sender = getNextSender();
-                if (!sender) {
-                    addLog(
-                        "❌ Error: No senders available even after reset.",
-                        "error",
-                    );
-                    break;
-                }
-            }
-
-            // --- LOGIC: Specific Sender Delay ---
-            const sMin = Number(sender.minDelay) || 5;
-            const sMax = Number(sender.maxDelay) || 15;
-            const delayMs = getRandomDelay(sMin, sMax);
-
-            const currentW = senderWeightsRef.current[sender.id];
-            addLog(
-                `⏳ Sending in ${(delayMs / 1000).toFixed(1)}s (Sender: ${sender.email} | Weight: ${currentW})...`,
-                "info",
-            );
-            await delay(delayMs);
-
-            if (stopRef.current) break;
-
-            const { time, date } = getCurrentTimestamp();
-
-            // --- SEND ---
-            if (isSimulation) {
-                addLog(`[SIM] ${sender.email} → ${email}`, "success");
-                reduceSenderWeight(sender.id);
-                updateRowStatus(i, "Completed", time, date, "Simulated");
+        for (const column of ["status", "time", "date", "note"]) {
+            if (headers.includes(column)) continue;
+            const columnIndex = headers.length;
+            headers.push(column);
+            if (currentSheet.data && Array.isArray(currentSheet.data)) {
+                if (!currentSheet.data[0]) currentSheet.data[0] = [];
+                currentSheet.data[0][columnIndex] = { v: column, m: column };
             } else {
-                try {
-                    const res = await fetch("/api/send-email", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            sender: {
-                                email: sender.email,
-                                password: sender.password,
-                                name: sender.name,
-                            },
-                            receiver: { email },
-                            subject: emailSubject,
-                            html: emailBody,
-                            replyTo: replyTo || sender.email,
-                        }),
-                    });
-                    const json = await res.json();
-                    if (json.success) {
-                        addLog(`✓ Sent to ${email}`, "success");
-                        reduceSenderWeight(sender.id);
-                        updateRowStatus(i, "Completed", time, date, "Sent");
-                    } else {
-                        throw new Error(json.error);
-                    }
-                } catch (error: any) {
-                    addLog(`✗ ${email}: ${error.message}`, "error");
-                    updateRowStatus(i, "Failed", time, date, error.message);
-                }
+                currentSheet.celldata ??= [];
+                currentSheet.celldata.push({
+                    r: 0,
+                    c: columnIndex,
+                    v: { v: column },
+                });
             }
         }
-        setIsProcessing(false);
-        addLog("✓ Engine finished", "success");
+        if (headers.length !== originalHeaderCount) {
+            setSheetData((prev) => [currentSheet, ...prev.slice(1)]);
+            rows = extractRowsFromSheet(currentSheet);
+        }
+
+        const totalBytes = attachments.reduce((total, file) => total + file.size, 0);
+        if (totalBytes > 3 * 1024 * 1024) {
+            addLog("Attachments must total 3 MB or less.", "error");
+            return;
+        }
+
+        runLockRef.current = true;
+        stopRef.current = false;
+        setIsProcessing(true);
+        let encodedAttachments: {
+            filename: string;
+            contentType: string | undefined;
+            content: string;
+        }[];
+        try {
+            encodedAttachments = await Promise.all(
+                attachments.map(async (file) => ({
+                    filename: file.name,
+                    contentType: file.type || undefined,
+                    content: toBase64(new Uint8Array(await file.arrayBuffer())),
+                })),
+            );
+        } catch (error) {
+            runLockRef.current = false;
+            setIsProcessing(false);
+            addLog(
+                error instanceof Error ? error.message : "Could not read attachments.",
+                "error",
+            );
+            return;
+        }
+
+        senders.forEach((s) => {
+            senderWeightsRef.current[s.id] =
+                s.remaining ?? s.maxWeight ?? s.weight;
+        });
+
+        addLog("Automatic sending started.", "info");
+        let page = 1;
+        let pageCount = 0;
+        let handled = 0;
+        const recordHandledRow = () => {
+            handled++;
+            pageCount++;
+            if (pageCount >= Math.max(1, batchSize)) {
+                addLog(`Batch ${page} complete (${pageCount} row(s)).`, "info");
+                page++;
+                pageCount = 0;
+            }
+        };
+        const statusIndex = headers.indexOf("status");
+        const firstNameIndex = headers.indexOf("first_name");
+        const lastNameIndex = headers.indexOf("last_name");
+        const fromEmailIndex = headers.indexOf("from_email");
+
+        try {
+            for (let i = 1; i < rows.length; i++) {
+                if (stopRef.current) break;
+
+                const row = rows[i] ?? [];
+                const email = row[emailIndex]?.trim() ?? "";
+                if (!email) continue;
+
+                const status = row[statusIndex]?.trim().toLowerCase() ?? "";
+                if (status === "completed" || status === "failed") continue;
+
+                const { time, date } = getCurrentTimestamp();
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                    updateRowStatus(i, "Failed", time, date, "Invalid email address", headers);
+                    addLog(`Invalid recipient on sheet row ${i + 1}.`, "error");
+                    recordHandledRow();
+                    continue;
+                }
+
+                const preferredEmail = row[fromEmailIndex]?.trim();
+                let sender = getNextSender(preferredEmail || undefined);
+                if (preferredEmail && !senders.some(
+                    (item) =>
+                        item.active &&
+                        item.email.trim().toLowerCase() === preferredEmail.toLowerCase(),
+                )) {
+                    updateRowStatus(i, "Failed", time, date, "From_Email is not an active configured sender", headers);
+                    addLog(`No active sender matches ${preferredEmail} for ${email}.`, "error");
+                    recordHandledRow();
+                    continue;
+                }
+
+                if (!sender) {
+                    const timeoutMs = calculateTimeoutMs(
+                        minTimeout,
+                        maxTimeout,
+                        timeoutUnit,
+                    );
+                    addLog(
+                        `Sender weight exhausted. Waiting ${(timeoutMs / 1000).toFixed(0)}s before resetting weights.`,
+                        "warn",
+                    );
+                    await delay(timeoutMs);
+                    if (stopRef.current) break;
+                    resetAllWeights();
+                    sender = getNextSender(preferredEmail || undefined);
+                    if (!sender) {
+                        updateRowStatus(i, "Failed", time, date, "No available sender", headers);
+                        addLog(`No sender with available weight for ${email}.`, "error");
+                        recordHandledRow();
+                        continue;
+                    }
+                }
+
+                const values = Object.fromEntries(
+                    headers.map((header, index) => [
+                        header,
+                        row[index]?.trim() ?? "",
+                    ]),
+                );
+                values.first_name = row[firstNameIndex]?.trim() ?? values.first_name ?? "";
+                values.last_name = row[lastNameIndex]?.trim() ?? values.last_name ?? "";
+                values.email = email;
+
+                const delayMs = getRandomDelay(
+                    Number(sender.minDelay) || 5,
+                    Number(sender.maxDelay) || 15,
+                );
+                addLog(
+                    `Batch ${page}: sending to ${email} via ${sender.email} in ${(delayMs / 1000).toFixed(1)}s.`,
+                    "info",
+                );
+                updateRowStatus(i, "Sending", time, date, "", headers);
+                await delay(delayMs);
+                if (stopRef.current) break;
+
+                try {
+                    if (isSimulation) {
+                        addLog(`[SIM] ${sender.email} → ${email}`, "success");
+                        updateRowStatus(i, "Completed", time, date, "Simulated", headers);
+                    } else {
+                        const res = await fetch("/api/send-email", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                sender: {
+                                    email: sender.email,
+                                    password: sender.password,
+                                    name: sender.name,
+                                },
+                                receiver: { email },
+                                subject: personalize(emailSubject, values, false),
+                                html: personalize(emailBody, values, true),
+                                replyTo: replyTo || sender.email,
+                                attachments: encodedAttachments,
+                            }),
+                        });
+                        const json = await res.json();
+                        if (!res.ok || !json.success) {
+                            throw new Error(json.error || `Email service returned ${res.status}.`);
+                        }
+                        addLog(`Sent to ${email}.`, "success");
+                        updateRowStatus(i, "Completed", time, date, "Sent", headers);
+                    }
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : "Email delivery failed.";
+                    addLog(`${email}: ${message}`, "error");
+                    updateRowStatus(i, "Failed", time, date, message, headers);
+                }
+
+                reduceSenderWeight(sender.id);
+                recordHandledRow();
+            }
+        } finally {
+            runLockRef.current = false;
+            setIsProcessing(false);
+            addLog(
+                stopRef.current
+                    ? `Sending stopped. Processed ${handled} row(s).`
+                    : `Automatic sending finished. Processed ${handled} row(s).`,
+                stopRef.current ? "warn" : "success",
+            );
+        }
     };
     const stop = () => {
         stopRef.current = true;
-        setIsProcessing(false);
         addLog("⏹️ Stop requested", "warn");
-    };
-
-    const testDelay = () => {
-        addLog("Test delay...", "info");
     };
 
     const LogIcon = ({ type }: { type: Log["type"] }) => {
@@ -669,23 +860,31 @@ export default function EmailBlaster() {
                         <Send className="text-indigo-400" /> EMAIL BROADCAST
                     </h3>
                     <p className="text-slate-400 text-sm mt-1">
-                        Multi-sender weighted distribution engine
+                        Single-page campaign workspace · serverless delivery
                     </p>
                 </div>
-                <button
-                    onClick={isProcessing ? stop : start}
-                    className={`flex items-center gap-2 px-8 py-3 rounded-xl font-bold transition-all ${isProcessing ? "bg-rose-600 text-white" : "bg-indigo-600 text-white"}`}
-                >
-                    {isProcessing ? (
-                        <>
-                            <Pause size={20} /> STOP
-                        </>
-                    ) : (
-                        <>
-                            <Play size={20} /> START
-                        </>
-                    )}
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setActiveTab("instructions")}
+                        className="flex items-center gap-2 rounded-xl border border-slate-600 px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+                    >
+                        <BookOpen size={18} /> Guide
+                    </button>
+                    <button
+                        onClick={isProcessing ? stop : start}
+                        className={`flex items-center gap-2 px-8 py-3 rounded-xl font-bold transition-all ${isProcessing ? "bg-rose-600 text-white" : "bg-indigo-600 text-white"}`}
+                    >
+                        {isProcessing ? (
+                            <>
+                                <Pause size={20} /> STOP
+                            </>
+                        ) : (
+                            <>
+                                <Play size={20} /> START
+                            </>
+                        )}
+                    </button>
+                </div>
             </header>
 
             <main className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-grow">
@@ -700,8 +899,16 @@ export default function EmailBlaster() {
                         <button
                             onClick={() => setActiveTab("config")}
                             className={`flex-1 py-2 rounded text-sm font-medium ${activeTab === "config" ? "bg-indigo-600" : "text-slate-400"}`}
+                            title="Campaign settings"
                         >
                             <Settings size={14} className="mx-auto" />
+                        </button>
+                        <button
+                            onClick={() => setActiveTab("instructions")}
+                            className={`flex-1 py-2 rounded text-sm font-medium ${activeTab === "instructions" ? "bg-indigo-600" : "text-slate-400"}`}
+                            title="Instructions"
+                        >
+                            <BookOpen size={14} className="mx-auto" />
                         </button>
                     </div>
 
@@ -772,7 +979,7 @@ export default function EmailBlaster() {
                                                             e.target.value,
                                                     })
                                                 }
-                                                placeholder="App password"
+                                                placeholder="Gmail app password (session only)"
                                                 className="flex-grow bg-slate-600 text-white px-3 py-1 rounded text-sm"
                                             />
                                             <button
@@ -790,6 +997,9 @@ export default function EmailBlaster() {
                                                 )}
                                             </button>
                                         </div>
+                                        <p className="mb-3 text-[10px] text-slate-400">
+                                            Credentials are only kept in this browser session and are sent to the serverless mail function when sending.
+                                        </p>
 
                                         {/* Configs */}
                                         <div className="grid grid-cols-12 gap-2 text-xs">
@@ -943,6 +1153,27 @@ export default function EmailBlaster() {
                             </div>
 
                             <div>
+                                <label className="text-xs font-bold text-slate-400">
+                                    Batch size
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="1000"
+                                    value={batchSize}
+                                    onChange={(e) =>
+                                        setBatchSize(
+                                            Math.min(1000, Math.max(1, Number(e.target.value) || 1)),
+                                        )
+                                    }
+                                    className="mt-1 w-full rounded bg-slate-700 px-3 py-2 text-sm text-white"
+                                />
+                                <p className="mt-1 text-[10px] text-slate-500">
+                                    Sends every pending lead automatically, showing progress in groups of this size.
+                                </p>
+                            </div>
+
+                            <div>
                                 <label className="flex items-center gap-3 p-3 bg-slate-700 rounded cursor-pointer">
                                     <input
                                         type="checkbox"
@@ -959,6 +1190,47 @@ export default function EmailBlaster() {
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-400">
+                                    Attachments
+                                </label>
+                                <label className="mt-1 flex cursor-pointer items-center justify-center gap-2 rounded border border-dashed border-slate-600 bg-slate-700 px-3 py-3 text-sm text-slate-200 hover:bg-slate-600">
+                                    <Paperclip size={16} />
+                                    Add files (3 MB total maximum)
+                                    <input
+                                        type="file"
+                                        multiple
+                                        className="hidden"
+                                        onChange={(event) => {
+                                            const selected = Array.from(event.target.files ?? []);
+                                            const combined = [...attachments, ...selected];
+                                            if (combined.reduce((sum, file) => sum + file.size, 0) > 3 * 1024 * 1024) {
+                                                addLog("Attachments must total 3 MB or less.", "error");
+                                            } else {
+                                                setAttachments(combined);
+                                            }
+                                            event.target.value = "";
+                                        }}
+                                    />
+                                </label>
+                                {attachments.length > 0 && (
+                                    <ul className="mt-2 space-y-1">
+                                        {attachments.map((file, index) => (
+                                            <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 text-xs text-slate-300">
+                                                <span className="truncate">{file.name}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== index))}
+                                                    aria-label={`Remove ${file.name}`}
+                                                    className="text-slate-400 hover:text-rose-400"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-slate-400">
                                     Subject
                                 </label>
                                 <input
@@ -969,6 +1241,9 @@ export default function EmailBlaster() {
                                     }
                                     className="w-full bg-slate-700 text-white px-3 py-2 rounded mt-1 text-sm"
                                 />
+                                <p className="mt-1 text-[10px] text-slate-500">
+                                    Personalize with {"{{first_name}}"}, {"{{last_name}}"}, or another CSV column.
+                                </p>
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-400">
@@ -1001,6 +1276,25 @@ export default function EmailBlaster() {
                 /> */}
                             </div>
                         </div>
+                    )}
+
+                    {activeTab === "instructions" && (
+                        <section className="bg-slate-800 p-6 rounded-xl border border-slate-700 flex-grow space-y-4 text-sm text-slate-300">
+                            <h2 className="text-lg font-bold text-white">How to use Email Blaster</h2>
+                            <ol className="list-decimal space-y-2 pl-5">
+                                <li>Import a CSV with an <code>Email</code> column, or edit the Leads sheet directly. First_Name, Last_Name, and From_Email are optional. Missing Status, Time, Date, and Note columns are added automatically.</li>
+                                <li>Add and activate senders, then enter each Gmail address and Gmail app password. Passwords are cleared from saved browser data and must be re-entered for each session.</li>
+                                <li>Use <code>{"{{first_name}}"}</code> and <code>{"{{last_name}}"}</code> (or any CSV header) in the subject or message to personalize it. From_Email must match an active configured sender.</li>
+                                <li>Choose a batch size and optional files. START processes all pending rows in order, updating status as it goes. Sender weights and per-sender delays are applied; exhausted weights reset after the configured wait.</li>
+                                <li>Use Simulation Mode to verify the workflow without delivering email. Download CSV to export the current sheet and statuses.</li>
+                            </ol>
+                            <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 p-3 text-amber-200">
+                                <strong>Sending requirements:</strong> deploy this Next.js app on a serverless-compatible host so the <code>/api/send-email</code> function can reach Gmail SMTP. Gmail app passwords and account sending limits apply. Attachments are limited to 3 MB total per message.
+                            </div>
+                            <p className="text-xs text-slate-400">
+                                This is a single-page workspace, but actual email delivery cannot run in a browser alone: SMTP credentials are sent over HTTPS to the serverless function and are not stored in the browser.
+                            </p>
+                        </section>
                     )}
 
                     <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 h-64 flex flex-col">
@@ -1047,26 +1341,39 @@ export default function EmailBlaster() {
                                     Leads
                                 </h2>
                                 <p className="text-xs text-slate-500">
-                                    Email | Status | Time | Date | Note
+                                    CSV headers: Email, First_Name, Last_Name, From_Email
                                 </p>
                             </div>
-                            {/* <button
-                  onClick={loadDemoData}
-                  className="flex items-center gap-2 px-3 py-2 bg-green-600 rounded text-sm hover:bg-green-500"
-                >
-                  <Database size={14} /> Load Demo
-                </button> */}
-                            <button
-                                onClick={validateSheet}
-                                className="flex items-center gap-2 px-3 py-2 bg-purple-600 rounded text-sm hover:bg-purple-500"
-                            >
-                                <Terminal size={14} /> Validate
-                            </button>
+                            <div className="flex flex-wrap gap-2">
+                                <label className="flex cursor-pointer items-center gap-2 rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600">
+                                    <Upload size={14} /> Import CSV
+                                    <input
+                                        type="file"
+                                        accept=".csv,text/csv"
+                                        className="hidden"
+                                        onChange={(event) => {
+                                            void importCsv(event.target.files?.[0]);
+                                            event.target.value = "";
+                                        }}
+                                    />
+                                </label>
+                                <button
+                                    onClick={downloadCsv}
+                                    className="flex items-center gap-2 rounded bg-slate-700 px-3 py-2 text-sm hover:bg-slate-600"
+                                >
+                                    <Download size={14} /> Download CSV
+                                </button>
+                                <button
+                                    onClick={validateSheet}
+                                    className="flex items-center gap-2 rounded bg-purple-600 px-3 py-2 text-sm hover:bg-purple-500"
+                                >
+                                    <Terminal size={14} /> Validate
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex-grow relative min-h-96">
                         <Workbook
-                            ref={workbookRef}
                             data={sheetData}
                             onChange={onSheetChange}
                             showSheetTabs={true}

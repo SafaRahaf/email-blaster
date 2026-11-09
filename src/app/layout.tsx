@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Email Blaster | Pro Outreach Engine",
-  description: "Next-generation multi-sender cold email rotation tool.",
+  title: "Email Blaster",
+  description: "Single-page campaign workspace with serverless email delivery.",
 };
 
 
