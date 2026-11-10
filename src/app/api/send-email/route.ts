@@ -27,8 +27,16 @@ const isEmailAttachment = (value: unknown): value is EmailAttachment =>
       /^[\w.+-]+\/[\w.+-]+$/.test(value.contentType)));
 
 const isEmail = (value: unknown): value is string =>
-  typeof value === "string" &&
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+  typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+const DEFAULT_SMTP_HOST = "smtp.gmail.com";
+const DEFAULT_SMTP_PORT = 587;
+
+// Hostname or IP token only: no scheme, no path, no credentials.
+const isSmtpHost = (value: string): boolean =>
+  value.length > 0 &&
+  value.length <= 253 &&
+  /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(value);
 
 export async function POST(req: Request) {
   let parsedBody: unknown;
@@ -61,7 +69,10 @@ export async function POST(req: Request) {
     (body.replyTo !== undefined && typeof body.replyTo !== "string")
   ) {
     return NextResponse.json(
-      { success: false, error: "Subject, message, or reply-to fields are invalid." },
+      {
+        success: false,
+        error: "Subject, message, or reply-to fields are invalid.",
+      },
       { status: 400 },
     );
   }
@@ -72,7 +83,10 @@ export async function POST(req: Request) {
     !sender.password.trim()
   ) {
     return NextResponse.json(
-      { success: false, error: "A valid sender email and app password are required." },
+      {
+        success: false,
+        error: "A valid sender email and app password are required.",
+      },
       { status: 400 },
     );
   }
@@ -80,6 +94,29 @@ export async function POST(req: Request) {
   if (!isEmail(receiver?.email)) {
     return NextResponse.json(
       { success: false, error: "A valid recipient email is required." },
+      { status: 400 },
+    );
+  }
+
+  // Per-sender SMTP server. Gmail stays the default so older clients keep working.
+  const smtpHost =
+    typeof sender.smtpHost === "string" && sender.smtpHost.trim()
+      ? sender.smtpHost.trim()
+      : DEFAULT_SMTP_HOST;
+  const smtpPort =
+    typeof sender.smtpPort === "number" ? sender.smtpPort : DEFAULT_SMTP_PORT;
+  const smtpSecure = sender.smtpSecure === true;
+
+  if (!isSmtpHost(smtpHost)) {
+    return NextResponse.json(
+      { success: false, error: "The SMTP host name is invalid." },
+      { status: 400 },
+    );
+  }
+
+  if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+    return NextResponse.json(
+      { success: false, error: "The SMTP port must be between 1 and 65535." },
       { status: 400 },
     );
   }
@@ -98,12 +135,12 @@ export async function POST(req: Request) {
     );
   }
 
-  if (
-    subject.length > 998 ||
-    html.length > 2_000_000
-  ) {
+  if (subject.length > 998 || html.length > 2_000_000) {
     return NextResponse.json(
-      { success: false, error: "The email content or attachments are too large." },
+      {
+        success: false,
+        error: "The email content or attachments are too large.",
+      },
       { status: 413 },
     );
   }
@@ -138,17 +175,15 @@ export async function POST(req: Request) {
       filename: value.filename,
       content: decoded,
       contentType:
-        typeof value.contentType === "string"
-          ? value.contentType
-          : undefined,
+        typeof value.contentType === "string" ? value.contentType : undefined,
     });
   }
 
   try {
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 587,
-      secure: false,
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
       auth: {
         user: sender.email.trim(),
         pass: sender.password.trim().replace(/\s/g, ""),
@@ -173,11 +208,21 @@ export async function POST(req: Request) {
     });
   } catch (error: unknown) {
     console.error("Email delivery failed:", error);
-    const code = isRecord(error) && typeof error.code === "string" ? error.code : "";
-    const userMessage =
-      code === "EAUTH"
-        ? "Gmail authentication failed. Check the address and app password."
-        : "Email delivery failed. Check the sender settings and try again.";
+    const code =
+      isRecord(error) && typeof error.code === "string" ? error.code : "";
+    let userMessage =
+      "Email delivery failed. Check the sender settings and try again.";
+
+    if (code === "EAUTH") {
+      userMessage = `SMTP authentication failed for ${smtpHost}. Check the address and password (Gmail requires an app password).`;
+    } else if (
+      code === "ECONNECTION" ||
+      code === "ETIMEDOUT" ||
+      code === "ESOCKET" ||
+      code === "EDNS"
+    ) {
+      userMessage = `Could not reach ${smtpHost}:${smtpPort}. Check the server name, port, and SSL/TLS setting.`;
+    }
 
     return NextResponse.json(
       { success: false, error: userMessage },

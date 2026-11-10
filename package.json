@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "package:win": "powershell -NoProfile -ExecutionPolicy Bypass -File packaging/package-windows.ps1",
+    "package:win:folder": "powershell -NoProfile -ExecutionPolicy Bypass -File packaging/package-windows.ps1 -SkipInstaller"
   },
   "dependencies": {
     "@fortune-sheet/react": "^1.0.4",
