@@ -9,12 +9,18 @@ WHAT THIS IS
 
 HOW TO RUN
   1. Click the "Email Blaster" icon on your Desktop (or in the Start Menu).
-  2. Your browser opens automatically at http://127.0.0.1:3100
-  3. That's it. There is no window to keep open — the app runs quietly in the
-     background on this PC.
+  2. The app opens in its own window - no address bar, no tabs, no bookmarks
+     bar. It looks like a normal program and gets its own taskbar button.
+  3. That's it. There is no console window to keep open - the app runs quietly
+     in the background on this PC.
 
-  Clicking the icon again just re-opens the browser tab. It never starts a
+  Clicking the icon again just brings that window back. It never starts a
   second copy.
+
+  The window is drawn by the browser you normally use (Edge, Chrome or Brave),
+  so your saved leads and sender settings are the same ones you had before. If
+  your default browser is something else (e.g. Firefox), the app opens in a
+  normal browser tab instead.
 
 
 HOW TO STOP IT
@@ -77,4 +83,5 @@ UNINSTALL
   Windows Settings -> Apps -> "Email Blaster" -> Uninstall.
   Your lead sheets are kept in the browser, so export them first with
   "Download CSV" if you want a copy.
+
 
